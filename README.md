@@ -6,17 +6,17 @@ Built with Python, the official MCP SDK and pandas.
 
 ## Tools
 
-| Tool | Arguments | Returns |
-|---|---|---|
-| `most_fuel_efficient` | `limit` (1-50, default 5) | The cars that use the least fuel |
-| `most_horsepower` | `limit` (1-50, default 5) | The most powerful cars |
-| `fastest_acceleration` | `limit` (1-50, default 5) | The quickest cars from 0 to 60 mph |
-| `origin_statistics` | none | Count, share and averages per origin (usa, japan, europe) |
-| `search_cars` | `origin`, `min_mpg`, `min_horsepower`, `limit` (all optional) | Cars matching the filters, most fuel efficient first |
-| `car_highlights` | `name` | Where one car beats the rest of the stock, as ready-made selling points |
-| `compare_cars` | `name_a`, `name_b` | Two cars side by side, and where each one is better |
+| Tool | What it answers |
+|---|---|
+| [`most_fuel_efficient`](#most_fuel_efficient) | Which cars use the least fuel? |
+| [`most_horsepower`](#most_horsepower) | Which cars are the most powerful? |
+| [`fastest_acceleration`](#fastest_acceleration) | Which cars are the quickest from 0 to 60 mph? |
+| [`origin_statistics`](#origin_statistics) | How do American, Japanese and European cars compare? |
+| [`search_cars`](#search_cars) | Which cars match what this customer asks for? |
+| [`car_highlights`](#car_highlights) | Why should the customer pick this car? |
+| [`compare_cars`](#compare_cars) | Which of these two cars is better at what? |
 
-Every car also gets `liters_per_100km`, since `mpg` is the American unit.
+Arguments, rules and example output for each tool are in the [tool reference](#tool-reference).
 
 ## Run
 
@@ -99,11 +99,52 @@ car_highlights
 compare_cars
 ```
 
-**4. Call the tools.** The examples below pick a few fields with jq to keep the output short. Drop the filter to see the whole reply.
+**4. Call a tool.** Every example in the tool reference below uses the `tool` helper.
 
-## Tool examples
+## Tool reference
+
+### Call format
+
+A call is a tool name plus a JSON object of arguments:
+
+```json
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"most_horsepower","arguments":{"limit":1}}}
+```
+
+- `arguments` is always an object. A tool without arguments takes `{}`.
+- Optional arguments can be left out.
+- Car names and origins are lowercase in the data.
+
+The reply carries the result in `result.structuredContent`, and `result.isError` says whether the call failed. A tool that returns a list wraps it in `result`:
+
+```json
+{"isError":false,"structuredContent":{"result":[{"name":"pontiac grand prix","mpg":16.0,"cylinders":8,"displacement":400.0,"horsepower":230.0,"weight":4278,"acceleration":9.5,"model_year":73,"origin":"usa","liters_per_100km":14.7}]}}
+```
+
+### Car record
+
+Every tool that returns cars returns them in this shape. The examples further down pick a few of the fields with jq to stay short.
+
+| Field | Meaning |
+|---|---|
+| `name` | Make and model, lowercase |
+| `mpg` | Miles per gallon. Higher means less fuel |
+| `liters_per_100km` | The same fuel use in the European unit. Lower means less fuel |
+| `cylinders` | Number of cylinders |
+| `displacement` | Engine size in cubic inches |
+| `horsepower` | Engine power. `null` for the 6 cars where it is unknown |
+| `weight` | Weight in pounds |
+| `acceleration` | Seconds from 0 to 60 mph. Lower is faster |
+| `model_year` | Two digits, 70 to 82 |
+| `origin` | `usa`, `japan` or `europe` |
 
 ### `most_fuel_efficient`
+
+The cars that use the least fuel, best first.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `limit` | integer | no, default 5 | 1 to 50 |
 
 ```bash
 tool most_fuel_efficient '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, mpg, liters_per_100km, origin}'
@@ -117,6 +158,12 @@ tool most_fuel_efficient '{"limit":3}' | jq -c '.result.structuredContent.result
 
 ### `most_horsepower`
 
+The most powerful cars, strongest first. Cars with unknown horsepower are left out.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `limit` | integer | no, default 5 | 1 to 50 |
+
 ```bash
 tool most_horsepower '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, horsepower, model_year, origin}'
 ```
@@ -128,6 +175,12 @@ tool most_horsepower '{"limit":3}' | jq -c '.result.structuredContent.result[] |
 ```
 
 ### `fastest_acceleration`
+
+The quickest cars, fastest first.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `limit` | integer | no, default 5 | 1 to 50 |
 
 ```bash
 tool fastest_acceleration '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, acceleration, horsepower, origin}'
@@ -141,6 +194,8 @@ tool fastest_acceleration '{"limit":3}' | jq -c '.result.structuredContent.resul
 
 ### `origin_statistics`
 
+One row per origin, largest group first: number of cars, share of the stock and averages. Takes no arguments, so pass `{}`.
+
 ```bash
 tool origin_statistics '{}' | jq -c '.result.structuredContent.result[]'
 ```
@@ -152,6 +207,15 @@ tool origin_statistics '{}' | jq -c '.result.structuredContent.result[]'
 ```
 
 ### `search_cars`
+
+Cars that match every filter given, most fuel efficient first. Returns an empty list when nothing matches.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `origin` | string | no | Exactly `usa`, `japan` or `europe` |
+| `min_mpg` | number | no | Keeps cars with at least this mpg |
+| `min_horsepower` | number | no | Keeps cars with at least this horsepower |
+| `limit` | integer | no, default 10 | 1 to 50 |
 
 ```bash
 tool search_cars '{"origin":"europe","min_horsepower":100,"limit":3}' | jq -c '.result.structuredContent.result[] | {name, mpg, horsepower, model_year}'
@@ -165,6 +229,18 @@ tool search_cars '{"origin":"europe","min_horsepower":100,"limit":3}' | jq -c '.
 
 ### `car_highlights`
 
+Selling points for one car: how it ranks against the rest of the stock on fuel use, horsepower, acceleration and weight.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `name` | string | yes | Not case sensitive. An exact name is tried first, then a partial one. If several cars match, the newest model year is used (`"GLC"` returns `mazda glc custom l`) |
+
+Returns three fields:
+
+- `car`: the full [car record](#car-record).
+- `beats_percent`: for each metric, the share of the stock this car beats.
+- `highlights`: one sentence for every metric where it beats at least 75%. If none reach that, the car's single best metric.
+
 ```bash
 tool car_highlights '{"name":"mazda glc"}' | jq -c '.result.structuredContent | {beats_percent, highlights}'
 ```
@@ -174,6 +250,18 @@ tool car_highlights '{"name":"mazda glc"}' | jq -c '.result.structuredContent | 
 ```
 
 ### `compare_cars`
+
+Two cars head to head.
+
+| Argument | Type | Required | Rules |
+|---|---|---|---|
+| `name_a` | string | yes | Same name matching as `car_highlights` |
+| `name_b` | string | yes | Must resolve to a different car than `name_a` |
+
+Returns three fields:
+
+- `car_a` and `car_b`: the full [car records](#car-record).
+- `advantages`: for each car, what it does better than the other one.
 
 ```bash
 tool compare_cars '{"name_a":"mazda glc","name_b":"pontiac grand prix"}' | jq -c '.result.structuredContent.advantages'
@@ -185,7 +273,9 @@ tool compare_cars '{"name_a":"mazda glc","name_b":"pontiac grand prix"}' | jq -c
 
 ### Errors
 
-Errors come back as a normal result with `isError: true` and a message the model can act on.
+A failed call is a normal reply with `isError: true` and a message the model can act on.
+
+An unknown car:
 
 ```bash
 tool car_highlights '{"name":"tesla"}' | jq -r '.result.content[0].text'
@@ -195,14 +285,16 @@ tool car_highlights '{"name":"tesla"}' | jq -r '.result.content[0].text'
 Error executing tool car_highlights: No car matching 'tesla'. Use search_cars to find valid names.
 ```
 
-The limit is part of the tool's schema, so an invalid value is rejected before any of our code runs:
+An argument outside the rules. The limit is part of the tool's schema, so the server rejects it before any of our code runs:
 
 ```bash
-tool most_fuel_efficient '{"limit":0}' | jq '.result.isError'
+tool most_fuel_efficient '{"limit":0}' | jq -r '.result.content[0].text' | head -3
 ```
 
 ```
-true
+Error executing tool most_fuel_efficient: 1 validation error for most_fuel_efficientArguments
+limit
+  Input should be greater than or equal to 1 [type=greater_than_equal, input_value=0, input_type=int]
 ```
 
 ## How it works
@@ -210,7 +302,6 @@ true
 - The CSV is loaded into a pandas DataFrame once, at startup.
 - Each tool is a plain Python function with `@mcp.tool()` on top.
 - Type hints become the tool's input schema, and the docstring is the description the model reads when it picks a tool.
-- Missing values (6 cars have no horsepower) are returned as `null`.
 - Every tool call writes one log line (`docker compose logs`).
 
 ## Development
