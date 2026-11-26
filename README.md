@@ -10,26 +10,57 @@ Built with Python, the official MCP SDK and pandas.
 |---|---|---|
 | `most_fuel_efficient` | `limit` (1-50, default 5) | The cars that use the least fuel |
 | `most_horsepower` | `limit` (1-50, default 5) | The most powerful cars |
+| `fastest_acceleration` | `limit` (1-50, default 5) | The quickest cars from 0 to 60 mph |
 | `origin_statistics` | none | Count, share and averages per origin (usa, japan, europe) |
 | `search_cars` | `origin`, `min_mpg`, `min_horsepower`, `limit` (all optional) | Cars matching the filters, most fuel efficient first |
 | `car_highlights` | `name` | Where one car beats the rest of the stock, as ready-made selling points |
+| `compare_cars` | `name_a`, `name_b` | Two cars side by side, and where each one is better |
 
 Every car also gets `liters_per_100km`, since `mpg` is the American unit.
 
 ## Run
 
-Requires [uv](https://docs.astral.sh/uv/).
-
 ```bash
-uv sync
-uv run python server.py
+docker compose up
 ```
 
 The server listens on `http://localhost:8000/mcp`.
 
-## Call it by hand
+## Use it
 
-No AI involved: this is the full loop an MCP client runs, done with `curl`. Responses are piped through [jq](https://jqlang.org) for readability.
+### Demo client
+
+`client.py` is a small MCP client without an AI. It lists the tools, calls each one once and prints every call with its result. Requires [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run python client.py
+```
+
+```
+Connecting to http://localhost:8000/mcp
+
+tools/list
+  most_fuel_efficient: Return the cars that use the least fuel (highest miles per gallon).
+  most_horsepower: Return the most powerful cars (highest horsepower).
+  ...
+
+tools/call most_fuel_efficient {"limit": 3}
+{
+  "result": [
+    {
+      "name": "mazda glc",
+      "mpg": 46.6,
+      ...
+```
+
+### Claude Code
+
+`.mcp.json` registers the server, so Claude Code picks it up when you open this folder and approve `car-dealer`. Ask in plain language, for example "Which three cars use the least fuel?", and the model chooses the tool itself.
+
+### By hand with curl
+
+The full loop an MCP client runs, without an SDK. Replies are piped through [jq](https://jqlang.org) for readability.
 
 **1. Connect.** The handshake returns a session id that every later request must carry.
 
@@ -45,10 +76,11 @@ curl -s -X POST $URL "${H[@]}" -H "Mcp-Session-Id: $SID" \
   -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
 ```
 
-**2. Add a helper** so the remaining calls stay short. It sends one JSON-RPC message and prints the JSON reply.
+**2. Add two helpers.** `call` sends one JSON-RPC message and prints the reply. `tool` wraps a tool name and its arguments in a `tools/call` message.
 
 ```bash
 call() { curl -s -X POST $URL "${H[@]}" -H "Mcp-Session-Id: $SID" -d "$1" | sed -n 's/^data: //p'; }
+tool() { call "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"; }
 ```
 
 **3. Ask which tools exist.**
@@ -60,16 +92,21 @@ call '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq -r '.result.tools[].n
 ```
 most_fuel_efficient
 most_horsepower
+fastest_acceleration
 origin_statistics
 search_cars
 car_highlights
+compare_cars
 ```
 
-**4. Call a tool.**
+**4. Call the tools.** The examples below pick a few fields with jq to keep the output short. Drop the filter to see the whole reply.
+
+## Tool examples
+
+### `most_fuel_efficient`
 
 ```bash
-call '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"most_fuel_efficient","arguments":{"limit":3}}}' \
-  | jq -c '.result.structuredContent.result[] | {name, mpg, liters_per_100km, origin}'
+tool most_fuel_efficient '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, mpg, liters_per_100km, origin}'
 ```
 
 ```json
@@ -78,33 +115,90 @@ call '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"most_fuel_
 {"name":"vw rabbit c (diesel)","mpg":44.3,"liters_per_100km":5.3,"origin":"europe"}
 ```
 
-**5. Get the selling points for one car.**
+### `most_horsepower`
 
 ```bash
-call '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"car_highlights","arguments":{"name":"mazda glc"}}}' \
-  | jq '.result.structuredContent | {beats_percent, highlights}'
+tool most_horsepower '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, horsepower, model_year, origin}'
 ```
 
 ```json
-{
-  "beats_percent": {
-    "mpg": 100,
-    "horsepower": 7,
-    "acceleration": 19,
-    "weight": 84
-  },
-  "highlights": [
-    "Uses less fuel than 100% of the cars in stock",
-    "Is lighter than 84% of the cars in stock"
-  ]
-}
+{"name":"pontiac grand prix","horsepower":230.0,"model_year":73,"origin":"usa"}
+{"name":"pontiac catalina","horsepower":225.0,"model_year":70,"origin":"usa"}
+{"name":"buick estate wagon (sw)","horsepower":225.0,"model_year":70,"origin":"usa"}
 ```
 
-**6. Send invalid input.** The limit is part of the tool's schema, so the server rejects it before any of our code runs.
+### `fastest_acceleration`
 
 ```bash
-call '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"most_fuel_efficient","arguments":{"limit":0}}}' \
-  | jq '.result.isError'
+tool fastest_acceleration '{"limit":3}' | jq -c '.result.structuredContent.result[] | {name, acceleration, horsepower, origin}'
+```
+
+```json
+{"name":"plymouth 'cuda 340","acceleration":8.0,"horsepower":160.0,"origin":"usa"}
+{"name":"plymouth fury iii","acceleration":8.5,"horsepower":215.0,"origin":"usa"}
+{"name":"amc ambassador dpl","acceleration":8.5,"horsepower":190.0,"origin":"usa"}
+```
+
+### `origin_statistics`
+
+```bash
+tool origin_statistics '{}' | jq -c '.result.structuredContent.result[]'
+```
+
+```json
+{"origin":"usa","cars":249,"share_percent":62.6,"avg_mpg":20.1,"avg_liters_per_100km":12.9,"avg_horsepower":119.0,"avg_weight":3361.9}
+{"origin":"japan","cars":79,"share_percent":19.8,"avg_mpg":30.5,"avg_liters_per_100km":8.1,"avg_horsepower":79.8,"avg_weight":2221.2}
+{"origin":"europe","cars":70,"share_percent":17.6,"avg_mpg":27.9,"avg_liters_per_100km":8.9,"avg_horsepower":80.6,"avg_weight":2423.3}
+```
+
+### `search_cars`
+
+```bash
+tool search_cars '{"origin":"europe","min_horsepower":100,"limit":3}' | jq -c '.result.structuredContent.result[] | {name, mpg, horsepower, model_year}'
+```
+
+```json
+{"name":"bmw 2002","mpg":26.0,"horsepower":113.0,"model_year":70}
+{"name":"saab 99le","mpg":25.0,"horsepower":115.0,"model_year":75}
+{"name":"saab 99le","mpg":24.0,"horsepower":110.0,"model_year":73}
+```
+
+### `car_highlights`
+
+```bash
+tool car_highlights '{"name":"mazda glc"}' | jq -c '.result.structuredContent | {beats_percent, highlights}'
+```
+
+```json
+{"beats_percent":{"mpg":100,"horsepower":7,"acceleration":19,"weight":84},"highlights":["Uses less fuel than 100% of the cars in stock","Is lighter than 84% of the cars in stock"]}
+```
+
+### `compare_cars`
+
+```bash
+tool compare_cars '{"name_a":"mazda glc","name_b":"pontiac grand prix"}' | jq -c '.result.structuredContent.advantages'
+```
+
+```json
+{"mazda glc":["Uses less fuel","Is lighter"],"pontiac grand prix":["Has more horsepower","Accelerates faster"]}
+```
+
+### Errors
+
+Errors come back as a normal result with `isError: true` and a message the model can act on.
+
+```bash
+tool car_highlights '{"name":"tesla"}' | jq -r '.result.content[0].text'
+```
+
+```
+Error executing tool car_highlights: No car matching 'tesla'. Use search_cars to find valid names.
+```
+
+The limit is part of the tool's schema, so an invalid value is rejected before any of our code runs:
+
+```bash
+tool most_fuel_efficient '{"limit":0}' | jq '.result.isError'
 ```
 
 ```
@@ -117,18 +211,28 @@ true
 - Each tool is a plain Python function with `@mcp.tool()` on top.
 - Type hints become the tool's input schema, and the docstring is the description the model reads when it picks a tool.
 - Missing values (6 cars have no horsepower) are returned as `null`.
+- Every tool call writes one log line (`docker compose logs`).
 
-## Tests
+## Development
+
+Open the folder in VS Code and choose **Reopen in Container**. The [dev container](.devcontainer/devcontainer.json) installs Python, uv and the dependencies, and forwards port 8000.
 
 ```bash
-uv run pytest
+uv run python server.py   # run the server without Docker
+uv run pytest             # known-answer tests for every tool
+uv run ruff check .       # lint
 ```
 
 ## Structure
 
 ```
 server.py              the MCP server and its tools
+client.py              demo client: lists the tools and calls each one
 data/Automobile.csv    the dataset
-tests/test_server.py   known-answer tests for each tool
+tests/test_server.py   tests
+Dockerfile             image for the server
+compose.yaml           docker compose up
+.mcp.json              registers the server in Claude Code
+.devcontainer/         development container
 pyproject.toml         dependencies (locked in uv.lock)
 ```
