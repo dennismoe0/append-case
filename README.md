@@ -297,6 +297,20 @@ limit
   Input should be greater than or equal to 1 [type=greater_than_equal, input_value=0, input_type=int]
 ```
 
+## EDA
+
+[`eda/eda.ipynb`](eda/eda.ipynb) explores the dataset with one question in mind: which selling points does this stock have, and what limits them? GitHub renders the notebook with its tables and charts.
+
+| Finding | What the dealer can say | Tool |
+|---|---|---|
+| Japanese cars average 8.1 l/100 km, American cars 12.9 | "Economical" is mostly a Japanese and European selling point | `origin_statistics`, `search_cars` |
+| American cars average 119 hp, the others about 80 | "Powerful" and "quick" are mostly American selling points | `most_horsepower`, `fastest_acceleration` |
+| Average mpg rose from 17.7 (1970) to 31.7 (1982) | The newest cars are the economical ones | `most_fuel_efficient` |
+| mpg and horsepower pull in opposite directions (correlation -0.78) | A car that is both economical and powerful is rare. 27 of 398 beat the median on both | `search_cars` |
+| 61% of the cars beat 75% of the stock on at least one metric | Most cars have a real selling point. The rest get their single best metric | `car_highlights` |
+
+The dataset has no price column, so value for money cannot be judged.
+
 ## How it works
 
 - The CSV is loaded into a pandas DataFrame once, at startup.
@@ -314,6 +328,8 @@ uv run pytest             # known-answer tests for every tool
 uv run ruff check .       # lint
 ```
 
+To run the notebook, install its dependencies with `uv sync --group eda` and open it in VS Code.
+
 ## Structure
 
 ```
@@ -321,6 +337,7 @@ server.py              the MCP server and its tools
 client.py              demo client: lists the tools and calls each one
 data/Automobile.csv    the dataset
 tests/test_server.py   tests
+eda/eda.ipynb          exploratory data analysis
 Dockerfile             image for the server
 compose.yaml           docker compose up
 .mcp.json              registers the server in Claude Code
