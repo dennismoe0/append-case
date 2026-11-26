@@ -1,7 +1,10 @@
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from server import (
     car_highlights,
+    compare_cars,
+    fastest_acceleration,
     most_fuel_efficient,
     most_horsepower,
     origin_statistics,
@@ -20,6 +23,12 @@ def test_most_horsepower():
     [car] = most_horsepower(1)
     assert car["name"] == "pontiac grand prix"
     assert car["horsepower"] == 230
+
+
+def test_fastest_acceleration():
+    [car] = fastest_acceleration(1)
+    assert car["name"] == "plymouth 'cuda 340"
+    assert car["acceleration"] == 8.0
 
 
 def test_origin_statistics_counts():
@@ -46,5 +55,21 @@ def test_car_highlights():
 
 
 def test_car_highlights_unknown_car():
-    with pytest.raises(ValueError):
+    with pytest.raises(ToolError):
         car_highlights("no such car xyz")
+
+
+def test_compare_cars():
+    result = compare_cars("mazda glc", "pontiac grand prix")
+    assert "Uses less fuel" in result["advantages"]["mazda glc"]
+    assert "Has more horsepower" in result["advantages"]["pontiac grand prix"]
+
+
+def test_compare_cars_unknown_car():
+    with pytest.raises(ToolError):
+        compare_cars("mazda glc", "no such car xyz")
+
+
+def test_compare_cars_same_car():
+    with pytest.raises(ToolError):
+        compare_cars("mazda glc", "mazda glc")

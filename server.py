@@ -5,6 +5,7 @@ from typing import Annotated, Any, Literal
 
 import pandas as pd
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,20 @@ def to_records(df: pd.DataFrame) -> list[dict]:
     return json.loads(df.to_json(orient="records"))
 
 
+def find_car(name: str) -> pd.DataFrame:
+    """Find one car by name: exact match first, then partial match, newest model year wins."""
+    query = name.strip().lower()
+    matches = cars[cars["name"] == query]
+    if matches.empty:
+        matches = cars[cars["name"].str.contains(query, regex=False)]
+    if matches.empty:
+        log.warning("find_car name=%r -> no match", name)
+        raise ToolError(
+            f"No car matching '{name}'. Use search_cars to find valid names."
+        )
+    return matches.loc[[matches["model_year"].idxmax()]]  # newest model year
+
+
 @mcp.tool()
 def most_fuel_efficient(limit: Limit = 5) -> list[dict]:
     """Return the cars that use the least fuel (highest miles per gallon). Use this when the customer wants an economical car."""
@@ -53,6 +68,14 @@ def most_horsepower(limit: Limit = 5) -> list[dict]:
     """Return the most powerful cars (highest horsepower). Use this when the customer wants a strong or sporty car."""
     result = cars.dropna(subset=["horsepower"]).nlargest(limit, "horsepower")
     log.info("most_horsepower limit=%s -> %d rows", limit, len(result))
+    return to_records(result)
+
+
+@mcp.tool()
+def fastest_acceleration(limit: Limit = 5) -> list[dict]:
+    """Return the quickest cars. Acceleration is seconds from 0 to 60 mph, so lower is faster. Use this when the customer wants a quick or sporty car."""
+    result = cars.nsmallest(limit, "acceleration")
+    log.info("fastest_acceleration limit=%s -> %d rows", limit, len(result))
     return to_records(result)
 
 
@@ -106,17 +129,7 @@ def search_cars(
 @mcp.tool()
 def car_highlights(name: str) -> dict[str, Any]:
     """Return selling points for one car: how it compares to the other cars in stock on fuel use, horsepower, acceleration and weight. Use this when the customer asks why they should pick a specific car."""
-    query = name.strip().lower()
-    matches = cars[cars["name"] == query]
-    if matches.empty:
-        matches = cars[cars["name"].str.contains(query, regex=False)]
-    if matches.empty:
-        log.warning("car_highlights name=%r -> no match", name)
-        raise ValueError(
-            f"No car matching '{name}'. Use search_cars to find valid names."
-        )
-
-    car = matches.loc[[matches["model_year"].idxmax()]]  # newest model year
+    car = find_car(name)
     beats_percent = {}
     for column, (_, higher_is_better) in HIGHLIGHT_METRICS.items():
         value = car[column].iloc[0]
@@ -143,6 +156,31 @@ def car_highlights(name: str) -> dict[str, Any]:
         "beats_percent": beats_percent,
         "highlights": highlights,
     }
+
+
+@mcp.tool()
+def compare_cars(name_a: str, name_b: str) -> dict[str, Any]:
+    """Compare two cars head to head and list where each one is better. Use this when the customer is choosing between two cars."""
+    car_a = find_car(name_a)
+    car_b = find_car(name_b)
+    if car_a.index[0] == car_b.index[0]:
+        log.warning("compare_cars name_a=%r name_b=%r -> same car", name_a, name_b)
+        raise ToolError("Both names match the same car. Pick two different cars.")
+
+    record_a = to_records(car_a)[0]
+    record_b = to_records(car_b)[0]
+    advantages = {record_a["name"]: [], record_b["name"]: []}
+    for column, (phrase, higher_is_better) in HIGHLIGHT_METRICS.items():
+        value_a = car_a[column].iloc[0]
+        value_b = car_b[column].iloc[0]
+        if pd.isna(value_a) or pd.isna(value_b) or value_a == value_b:
+            continue
+        a_wins = value_a > value_b if higher_is_better else value_a < value_b
+        winner = record_a if a_wins else record_b
+        advantages[winner["name"]].append(phrase)
+
+    log.info("compare_cars name_a=%r name_b=%r", name_a, name_b)
+    return {"car_a": record_a, "car_b": record_b, "advantages": advantages}
 
 
 if __name__ == "__main__":
