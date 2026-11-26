@@ -1,0 +1,12 @@
+[project]
+name = "append-case"
+version = "0.1.0"
+description = "MCP server that gives a car dealer's AI assistant access to car data"
+requires-python = ">=3.12"
+dependencies = ["mcp>=2.3,<3", "pandas>=3.1,<4"]
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
