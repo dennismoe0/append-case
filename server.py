@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import pandas as pd
 from mcp.server.mcpserver import MCPServer
@@ -104,7 +104,7 @@ def search_cars(
 
 
 @mcp.tool()
-def car_highlights(name: str) -> dict:
+def car_highlights(name: str) -> dict[str, Any]:
     """Return selling points for one car: how it compares to the other cars in stock on fuel use, horsepower, acceleration and weight. Use this when the customer asks why they should pick a specific car."""
     query = name.strip().lower()
     matches = cars[cars["name"] == query]
